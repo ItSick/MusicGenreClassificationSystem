@@ -543,28 +543,28 @@ def main():
                 os.unlink(tmp_file_path)
     
     # ===== Information Section =====
-    st.markdown("---")
-    st.subheader("ℹ️ How It Works")
+    # st.markdown("---")
+    # st.subheader("ℹ️ How It Works")
     
-    with st.expander("Click to learn more"):
-        st.markdown("""
-        **Feature Extraction:** 
-        - The system analyzes various audio characteristics including:
-          - MFCCs (Mel-Frequency Cepstral Coefficients) - captures timbre
-          - Chroma features - captures harmony and melody
-          - Spectral features - captures frequency content
-          - Rhythm features - captures tempo and beat
+    # with st.expander("Click to learn more"):
+    #     st.markdown("""
+    #     **Feature Extraction:** 
+    #     - The system analyzes various audio characteristics including:
+    #       - MFCCs (Mel-Frequency Cepstral Coefficients) - captures timbre
+    #       - Chroma features - captures harmony and melody
+    #       - Spectral features - captures frequency content
+    #       - Rhythm features - captures tempo and beat
         
-        **Machine Learning Model:**
-        - Uses Random Forest classifier with 100 decision trees
-        - Trained on multiple examples from each genre
-        - Makes predictions based on learned patterns
+    #     **Machine Learning Model:**
+    #     - Uses Random Forest classifier with 100 decision trees
+    #     - Trained on multiple examples from each genre
+    #     - Makes predictions based on learned patterns
         
-        **Prediction:**
-        - Extracts 59 different features from your audio file
-        - Compares these features to learned patterns
-        - Provides confidence scores for each possible genre
-        """)
+    #     **Prediction:**
+    #     - Extracts 59 different features from your audio file
+    #     - Compares these features to learned patterns
+    #     - Provides confidence scores for each possible genre
+    #     """)
     
     # ===== Footer =====
     st.markdown("---")
