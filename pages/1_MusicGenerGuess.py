@@ -441,14 +441,14 @@ def main():
     )
     
     # Training button
-    if st.sidebar.button("Train Model"):
-        if os.path.exists(data_folder):
-            with st.spinner("Training in progress... This may take several minutes."):
-                result = train_model(data_folder)
-                if result[0] is None:
-                    st.error("Training failed. Please check your dataset and try again.")
-        else:
-            st.sidebar.error(f"Folder '{data_folder}' not found!")
+    # if st.sidebar.button("Train Model"):
+    #     if os.path.exists(data_folder):
+    #         with st.spinner("Training in progress... This may take several minutes."):
+    #             result = train_model(data_folder)
+    #             if result[0] is None:
+    #                 st.error("Training failed. Please check your dataset and try again.")
+    #     else:
+    #         st.sidebar.error(f"Folder '{data_folder}' not found!")
     
     # ===== Main Prediction Section =====
     st.markdown("---")
