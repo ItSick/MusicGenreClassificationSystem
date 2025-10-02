@@ -1,7 +1,7 @@
 """
 
 Required installations:
-pip install streamlit librosa numpy scikit-learn pandas joblib
+pip install streamlit, librosa, numpy, scikit-learn, pandas, joblib,os
 
 """
 
@@ -11,6 +11,7 @@ import streamlit as st
 import librosa
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -41,6 +42,7 @@ def extract_features(file_path, duration=30):
         mfccs_mean = np.mean(mfccs, axis=1)
         mfccs_std = np.std(mfccs, axis=1)
 
+
         chroma = librosa.feature.chroma_stft(y=audio, sr=sr)
         chroma_mean = np.mean(chroma, axis=1)
         chroma_std = np.std(chroma, axis=1)
@@ -61,7 +63,7 @@ def extract_features(file_path, duration=30):
         zcr_mean = np.mean(zero_crossing_rate)
         zcr_std = np.std(zero_crossing_rate)
 
-        tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
+        tempo, beat_frame = librosa.beat.beat_track(y=audio, sr=sr)
 
         if isinstance(tempo, np.ndarray):
             tempo = float(tempo[0]) if len(tempo) > 0 else 120.0
@@ -81,7 +83,7 @@ def extract_features(file_path, duration=30):
             np.atleast_1d(spectral_bandwidth_std).flatten(),
             np.atleast_1d(zcr_mean).flatten(),
             np.atleast_1d(zcr_std).flatten(),
-            np.atleast_1d(tempo).flatten()
+            np.atleast_1d(tempo).flatten(),
         ])
 
         if features.shape[0] != 59:
@@ -248,18 +250,18 @@ def main():
 
     st.title("🎵 Music Genre Classification System")
     st.markdown("""
-    This application uses Machine Learning to automatically identify the genre of music.
+    This application uses Machine Learning to automatically identify the music genre 
     Upload an MP3 file and get instant predictions!
     """)
 
-    st.sidebar.title("Model Management")
+    st.sidebar.title("Model MGMT")
 
     model_exists = os.path.exists(MODEL_PATH) and os.path.exists(ENCODER_PATH)
 
     if model_exists:
         st.sidebar.success("✅ Trained model found!")
     else:
-        st.sidebar.warning("⚠️ No trained model found. Please train a model first.")
+        st.sidebar.warning("⚠️ No trained model found. Please train a model first")
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("Train New Model")
