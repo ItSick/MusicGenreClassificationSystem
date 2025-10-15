@@ -1,262 +1,225 @@
-"""
-Music Genre Classification System
-A complete Streamlit application for training and predicting music genres from MP3 files.
+import streamlit as st
+import librosa
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, classification_report
+import joblib
+import os
+import tempfile
+from pathlib import Path
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 
-Required installations:
-pip install streamlit librosa numpy scikit-learn pandas joblib
+GENRES = ['blues', 'classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae', 'rock']
 
-To run:
-streamlit run app.py
-"""
-
-# ==================== IMPORTS ====================
-
-import streamlit as st  # Web application framework for creating the UI
-import librosa  # Audio processing library for feature extraction
-import numpy as np  # Numerical operations and array handling
-import pandas as pd  # Data manipulation and analysis
-from sklearn.ensemble import RandomForestClassifier  # Machine learning classifier
-from sklearn.model_selection import train_test_split  # Split data into train/test sets
-from sklearn.preprocessing import LabelEncoder  # Convert genre labels to numbers
-from sklearn.metrics import accuracy_score, classification_report  # Model evaluation
-import joblib  # Save and load trained models
-import os  # Operating system operations for file handling
-import tempfile  # Create temporary files for uploaded audio
-from pathlib import Path  # Handle file paths in a cross-platform way
-
-# ==================== CONFIGURATION ====================
-
-GENRES = ['blues', 'classical', 'country', 'disco', 'hiphop', 
-          'jazz', 'metal', 'pop', 'reggae', 'rock']
-
-# Model file path - where we save/load the trained model
 MODEL_PATH = 'genre_classifier_model.pkl'
 
-# Label encoder path - saves the mapping between genre names and numbers
 ENCODER_PATH = 'label_encoder.pkl'
 
+PYTORCH_MODEL_PATH = 'pytorch_genre_model.pth'
 
-# ==================== FEATURE EXTRACTION ====================
+PYTORCH_ENCODER_PATH = 'pytorch_label_encoder.pkl'
+
+
+class MusicDataset(Dataset):
+    def __init__(self, features, labels):
+        self.features = torch.FloatTensor(features)
+        self.labels = torch.LongTensor(labels)
+    
+    def __len__(self):
+        return len(self.features)
+    
+    def __getitem__(self, idx):
+        return self.features[idx], self.labels[idx]
+
+
+class GenreClassifierNN(nn.Module):
+    def __init__(self, input_size=89, num_classes=10):
+        super(GenreClassifierNN, self).__init__()
+        
+        self.fc1 = nn.Linear(input_size, 128)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.dropout1 = nn.Dropout(0.3)
+        
+        self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.dropout2 = nn.Dropout(0.3)
+        
+        self.fc3 = nn.Linear(64, 32)
+        self.bn3 = nn.BatchNorm1d(32)
+        self.dropout3 = nn.Dropout(0.2)
+        
+        self.fc4 = nn.Linear(32, num_classes)
+        
+        self.relu = nn.ReLU()
+    
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.dropout1(x)
+        
+        x = self.fc2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.dropout2(x)
+        
+        x = self.fc3(x)
+        x = self.bn3(x)
+        x = self.relu(x)
+        x = self.dropout3(x)
+        
+        x = self.fc4(x)
+        
+        return x
+
 
 def extract_features(file_path, duration=30):
-    """
-    Extract audio features from a music file using librosa.
-    
-    This function analyzes the audio and extracts various characteristics
-    that help identify the genre, such as rhythm, melody, and timbre.
-    
-    Parameters:
-    -----------
-    file_path : str
-        Path to the audio file (MP3, WAV, etc.)
-    duration : int
-        How many seconds of audio to analyze (default: 30 seconds)
-        
-    Returns:
-    --------
-    numpy.ndarray
-        A 1D array containing all extracted features concatenated together
-        Returns None if there's an error processing the file
-    """
     try:
-        # Load the audio file
-        # y: audio time series (the actual sound wave as numbers)
-        # sr: sampling rate (how many samples per second, usually 22050 Hz)
-        # duration: only load the first 30 seconds to keep processing fast
         audio, sr = librosa.load(file_path, duration=duration)
         
-        # ===== MFCC Features (Mel-Frequency Cepstral Coefficients) =====
-        # MFCCs represent the shape of the vocal tract and are excellent for 
-        # distinguishing different timbres (e.g., guitar vs piano)
-        # n_mfcc=13: Extract 13 MFCC coefficients (standard in music analysis)
         mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
+        mfccs_mean = np.mean(mfccs, axis=1)
+        mfccs_std = np.std(mfccs, axis=1)
         
-        # Calculate statistics across time for each MFCC coefficient
-        # This gives us 13 mean values and 13 standard deviation values
-        mfccs_mean = np.mean(mfccs, axis=1)  # Average value over time
-        mfccs_std = np.std(mfccs, axis=1)    # Variation over time
-        
-        # ===== Chroma Features =====
-        # Chroma features represent the 12 different pitch classes (C, C#, D, etc.)
-        # Useful for identifying harmonic and melodic characteristics
         chroma = librosa.feature.chroma_stft(y=audio, sr=sr)
-        chroma_mean = np.mean(chroma, axis=1)  # 12 values, one per pitch class
+        chroma_mean = np.mean(chroma, axis=1)
         chroma_std = np.std(chroma, axis=1)
         
-        # ===== Spectral Features =====
-        # These describe the frequency content and texture of the sound
-        
-        # Spectral Centroid: The "center of mass" of the spectrum
-        # Higher values = brighter sounds (e.g., cymbals)
-        # Lower values = darker sounds (e.g., bass guitar)
         spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr)
         spectral_centroid_mean = np.mean(spectral_centroid)
         spectral_centroid_std = np.std(spectral_centroid)
         
-        # Spectral Rolloff: Frequency below which 85% of energy is contained
-        # Helps distinguish between harmonic and noisy sounds
         spectral_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr)
         spectral_rolloff_mean = np.mean(spectral_rolloff)
         spectral_rolloff_std = np.std(spectral_rolloff)
         
-        # Spectral Bandwidth: Range of frequencies present
-        # Wide bandwidth = many frequencies (e.g., rock music)
-        # Narrow bandwidth = few frequencies (e.g., pure tones)
         spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio, sr=sr)
         spectral_bandwidth_mean = np.mean(spectral_bandwidth)
         spectral_bandwidth_std = np.std(spectral_bandwidth)
         
-        # ===== Zero Crossing Rate =====
-        # How often the signal changes from positive to negative
-        # High values indicate percussive or noisy sounds
         zero_crossing_rate = librosa.feature.zero_crossing_rate(y=audio)
         zcr_mean = np.mean(zero_crossing_rate)
         zcr_std = np.std(zero_crossing_rate)
         
-        # ===== Rhythm Features =====
-        # Tempo: Speed of the music in beats per minute (BPM)
+        spectral_contrast = librosa.feature.spectral_contrast(y=audio, sr=sr)
+        spectral_contrast_mean = np.mean(spectral_contrast, axis=1)
+        spectral_contrast_std = np.std(spectral_contrast, axis=1)
+        
+        tonnetz = librosa.feature.tonnetz(y=audio, sr=sr)
+        tonnetz_mean = np.mean(tonnetz, axis=1)
+        tonnetz_std = np.std(tonnetz, axis=1)
+        
+        rms = librosa.feature.rms(y=audio)
+        rms_mean = np.mean(rms)
+        rms_std = np.std(rms)
+        
+        spectral_flatness = librosa.feature.spectral_flatness(y=audio)
+        spectral_flatness_mean = np.mean(spectral_flatness)
+        spectral_flatness_std = np.std(spectral_flatness)
+        
         tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
         
-        # Ensure tempo is a scalar value (sometimes it returns an array)
         if isinstance(tempo, np.ndarray):
             tempo = float(tempo[0]) if len(tempo) > 0 else 120.0
         else:
             tempo = float(tempo)
         
-        # Concatenate all features into a single feature vector
-        # This creates one long array with all the information about the song
-        # We use np.atleast_1d to ensure all scalar values become 1D arrays
-        # and flatten() to ensure no 2D arrays slip through
         features = np.concatenate([
-            np.atleast_1d(mfccs_mean).flatten(),                    # 13 features
-            np.atleast_1d(mfccs_std).flatten(),                     # 13 features
-            np.atleast_1d(chroma_mean).flatten(),                   # 12 features
-            np.atleast_1d(chroma_std).flatten(),                    # 12 features
-            np.atleast_1d(spectral_centroid_mean).flatten(),        # 1 feature
-            np.atleast_1d(spectral_centroid_std).flatten(),         # 1 feature
-            np.atleast_1d(spectral_rolloff_mean).flatten(),         # 1 feature
-            np.atleast_1d(spectral_rolloff_std).flatten(),          # 1 feature
-            np.atleast_1d(spectral_bandwidth_mean).flatten(),       # 1 feature
-            np.atleast_1d(spectral_bandwidth_std).flatten(),        # 1 feature
-            np.atleast_1d(zcr_mean).flatten(),                      # 1 feature
-            np.atleast_1d(zcr_std).flatten(),                       # 1 feature
-            np.atleast_1d(tempo).flatten()                          # 1 feature
+            np.atleast_1d(mfccs_mean).flatten(),
+            np.atleast_1d(mfccs_std).flatten(),
+            np.atleast_1d(chroma_mean).flatten(),
+            np.atleast_1d(chroma_std).flatten(),
+            np.atleast_1d(spectral_centroid_mean).flatten(),
+            np.atleast_1d(spectral_centroid_std).flatten(),
+            np.atleast_1d(spectral_rolloff_mean).flatten(),
+            np.atleast_1d(spectral_rolloff_std).flatten(),
+            np.atleast_1d(spectral_bandwidth_mean).flatten(),
+            np.atleast_1d(spectral_bandwidth_std).flatten(),
+            np.atleast_1d(zcr_mean).flatten(),
+            np.atleast_1d(zcr_std).flatten(),
+            np.atleast_1d(spectral_contrast_mean).flatten(),
+            np.atleast_1d(spectral_contrast_std).flatten(),
+            np.atleast_1d(tonnetz_mean).flatten(),
+            np.atleast_1d(tonnetz_std).flatten(),
+            np.atleast_1d(rms_mean).flatten(),
+            np.atleast_1d(rms_std).flatten(),
+            np.atleast_1d(spectral_flatness_mean).flatten(),
+            np.atleast_1d(spectral_flatness_std).flatten(),
+            np.atleast_1d(tempo).flatten()
         ])
         
-        # Validate feature vector shape
-        # Should have exactly 59 features (13+13+12+12+1+1+1+1+1+1+1+1+1 = 59)
-        if features.shape[0] != 59:
-            st.warning(f"Expected 59 features but got {features.shape[0]} from {file_path}")
+        expected_features = 89
+        if features.shape[0] != expected_features:
+            st.warning(f"Expected {expected_features} features but got {features.shape[0]} from {file_path}")
         
-        # Total: 59 features describing the audio
         return features
         
     except Exception as e:
-        # If anything goes wrong (corrupted file, unsupported format, etc.)
-        # print the error and return None
         st.error(f"Error extracting features from {file_path}: {str(e)}")
-        # Print more detailed error information for debugging
         import traceback
         st.error(f"Detailed error: {traceback.format_exc()}")
         return None
 
 
-# ==================== MODEL TRAINING ====================
-
 def train_model(data_folder):
-    """
-    Train a Random Forest classifier on a dataset of music files.
+    features_list = []
+    labels_list = []
     
-    This function expects a folder structure like:
-    data_folder/
-        blues/
-            song1.mp3
-            song2.mp3
-        jazz/
-            song1.mp3
-            song2.mp3
-        ... (one folder per genre)
-    
-    Parameters:
-    -----------
-    data_folder : str
-        Path to the folder containing genre subfolders with audio files
-        
-    Returns:
-    --------
-    tuple
-        (model, label_encoder, accuracy) - The trained model, encoder, and accuracy score
-    """
-    
-    # Lists to store our training data
-    features_list = []  # Will store the extracted features for each song
-    labels_list = []    # Will store the genre label for each song
-    
-    # Progress tracking
     st.write("### Training Progress")
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Get all genre folders
     genre_folders = [f for f in os.listdir(data_folder) 
                      if os.path.isdir(os.path.join(data_folder, f))]
     
     total_files = 0
     processed_files = 0
     
-    # First, count total files for progress tracking
     for genre in genre_folders:
         genre_path = os.path.join(data_folder, genre)
         files = [f for f in os.listdir(genre_path) 
-                if f.endswith(('.mp3', '.wav', '.ogg'))]
+                if f.endswith(('.mp3', '.wav'))]
         total_files += len(files)
     
-    # Process each genre folder
     for genre_idx, genre in enumerate(genre_folders):
         genre_path = os.path.join(data_folder, genre)
         
-        # Get all audio files in this genre folder
         audio_files = [f for f in os.listdir(genre_path) 
-                      if f.endswith(('.mp3', '.wav', '.ogg'))]
+                      if f.endswith(('.mp3', '.wav'))]
         
         status_text.text(f"Processing {genre}... ({len(audio_files)} files)")
         
-        # Process each audio file in the genre
         for file_idx, audio_file in enumerate(audio_files):
             file_path = os.path.join(genre_path, audio_file)
             
-            # Extract features from the audio file
             features = extract_features(file_path)
             
-            # Only add if feature extraction was successful
             if features is not None:
-                features_list.append(features)  # Add features to our dataset
-                labels_list.append(genre)        # Add corresponding genre label
+                features_list.append(features)
+                labels_list.append(genre)
             
-            # Update progress bar
             processed_files += 1
             progress = processed_files / total_files
             progress_bar.progress(progress)
     
-    # Convert lists to numpy arrays for machine learning
-    X = np.array(features_list)  # Features matrix (each row is a song)
-    y = np.array(labels_list)    # Labels vector (genre for each song)
+    X = np.array(features_list)
+    y = np.array(labels_list)
     
     status_text.text(f"Extracted features from {len(X)} songs")
     
-    # ===== Validate Dataset Size =====
-    # Check if we have enough data to train
     if len(X) < 10:
         st.error(f"⚠️ Not enough data! Found only {len(X)} songs. You need at least 10 songs total (preferably 20+ per genre).")
         return None, None, None
     
-    # ===== Encode Labels =====
-    # Convert genre names (strings) to numbers for the ML algorithm
-    # e.g., 'rock' -> 0, 'jazz' -> 1, 'blues' -> 2, etc.
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
     
-    # Check samples per genre
     unique, counts = np.unique(y, return_counts=True)
     genre_counts = dict(zip(unique, counts))
     
@@ -264,7 +227,6 @@ def train_model(data_folder):
     for genre, count in genre_counts.items():
         st.write(f"- **{genre}**: {count} songs")
     
-    # Check if any genre has less than 2 samples (needed for stratification)
     min_samples = min(counts)
     if min_samples < 2:
         st.warning("⚠️ Some genres have less than 2 songs. Stratification disabled.")
@@ -272,11 +234,6 @@ def train_model(data_folder):
     else:
         use_stratify = True
     
-    # ===== Split Data =====
-    # Divide data into training set (80%) and testing set (20%)
-    # This helps us evaluate how well the model works on unseen data
-    # random_state=42: Makes the split reproducible (same split every time)
-    # stratify: Ensures each split has the same proportion of genres (only if enough samples)
     if use_stratify:
         X_train, X_test, y_train, y_test = train_test_split(
             X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
@@ -288,26 +245,17 @@ def train_model(data_folder):
     
     status_text.text("Training model...")
     
-    # ===== Train Random Forest Classifier =====
-    # Random Forest creates many decision trees and combines their predictions
-    # n_estimators=100: Create 100 decision trees
-    # random_state=42: Reproducible results
-    # n_jobs=-1: Use all CPU cores for faster training
     model = RandomForestClassifier(
         n_estimators=100,
         random_state=42,
         n_jobs=-1
     )
     
-    # Train the model on the training data
     model.fit(X_train, y_train)
     
-    # ===== Evaluate Model =====
-    # Test the model on data it hasn't seen before
-    y_pred = model.predict(X_test)  # Make predictions on test set
-    accuracy = accuracy_score(y_test, y_pred)  # Calculate accuracy
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
     
-    # Generate detailed classification report
     report = classification_report(
         y_test, 
         y_pred, 
@@ -318,16 +266,12 @@ def train_model(data_folder):
     status_text.text("Training complete!")
     progress_bar.progress(1.0)
     
-    # Display results
     st.success(f"Model trained successfully with {accuracy*100:.2f}% accuracy!")
     
-    # Show detailed metrics in a table
     st.write("#### Detailed Performance Metrics")
     report_df = pd.DataFrame(report).transpose()
     st.dataframe(report_df)
     
-    # ===== Save Model and Encoder =====
-    # Save to disk so we can use them later without retraining
     joblib.dump(model, MODEL_PATH)
     joblib.dump(label_encoder, ENCODER_PATH)
     st.info(f"Model saved to {MODEL_PATH}")
@@ -335,201 +279,417 @@ def train_model(data_folder):
     return model, label_encoder, accuracy
 
 
-# ==================== PREDICTION ====================
-
-def predict_genre(file_path, model, label_encoder):
-    """
-    Predict the genre of a music file.
+def train_pytorch_model(data_folder, epochs=50, batch_size=32, learning_rate=0.001):
+    features_list = []
+    labels_list = []
     
-    Parameters:
-    -----------
-    file_path : str
-        Path to the audio file to classify
-    model : sklearn model
-        The trained classifier model
-    label_encoder : LabelEncoder
-        The encoder to convert predictions back to genre names
+    st.write("### PyTorch Neural Network Training Progress")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    genre_folders = [f for f in os.listdir(data_folder) 
+                     if os.path.isdir(os.path.join(data_folder, f))]
+    
+    total_files = 0
+    processed_files = 0
+    
+    for genre in genre_folders:
+        genre_path = os.path.join(data_folder, genre)
+        files = [f for f in os.listdir(genre_path) 
+                if f.endswith(('.mp3', '.wav'))]
+        total_files += len(files)
+    
+    status_text.text("Extracting features from audio files...")
+    
+    for genre_idx, genre in enumerate(genre_folders):
+        genre_path = os.path.join(data_folder, genre)
         
-    Returns:
-    --------
-    tuple
-        (predicted_genre, probabilities) - Genre name and confidence for all genres
-    """
+        audio_files = [f for f in os.listdir(genre_path) 
+                      if f.endswith(('.mp3', '.wav'))]
+        
+        status_text.text(f"Processing {genre}... ({len(audio_files)} files)")
+        
+        for file_idx, audio_file in enumerate(audio_files):
+            file_path = os.path.join(genre_path, audio_file)
+            
+            features = extract_features(file_path)
+            
+            if features is not None:
+                features_list.append(features)
+                labels_list.append(genre)
+            
+            processed_files += 1
+            progress = processed_files / total_files * 0.3
+            progress_bar.progress(progress)
     
-    # Extract features from the uploaded file
+    X = np.array(features_list)
+    y = np.array(labels_list)
+    
+    status_text.text(f"Extracted features from {len(X)} songs")
+    
+    if len(X) < 10:
+        st.error(f"⚠️ Not enough data! Found only {len(X)} songs. You need at least 10 songs total.")
+        return None, None, None
+    
+    label_encoder = LabelEncoder()
+    y_encoded = label_encoder.fit_transform(y)
+    
+    unique, counts = np.unique(y, return_counts=True)
+    genre_counts = dict(zip(unique, counts))
+    
+    st.write("#### Dataset Distribution:")
+    for genre, count in genre_counts.items():
+        st.write(f"- **{genre}**: {count} songs")
+    
+    min_samples = min(counts)
+    use_stratify = min_samples >= 2
+    
+    if use_stratify:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        )
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42
+        )
+    
+    status_text.text("Preparing neural network...")
+    
+    train_dataset = MusicDataset(X_train, y_train)
+    test_dataset = MusicDataset(X_test, y_test)
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    
+    input_size = X_train.shape[1]
+    num_classes = len(label_encoder.classes_)
+    
+    model = GenreClassifierNN(input_size=input_size, num_classes=num_classes)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    
+    if device.type == 'cuda':
+        st.info("🚀 Training on GPU for faster performance!")
+    else:
+        st.info("💻 Training on CPU")
+    
+    criterion = nn.CrossEntropyLoss()
+    
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=5
+    )
+    
+    status_text.text("Training neural network...")
+    
+    train_losses = []
+    test_accuracies = []
+    best_accuracy = 0.0
+    
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        
+        for features, labels in train_loader:
+            features = features.to(device)
+            labels = labels.to(device)
+            
+            optimizer.zero_grad()
+            
+            outputs = model(features)
+            
+            loss = criterion(outputs, labels)
+            
+            loss.backward()
+            
+            optimizer.step()
+            
+            running_loss += loss.item()
+        
+        avg_loss = running_loss / len(train_loader)
+        train_losses.append(avg_loss)
+        
+        model.eval()
+        correct = 0
+        total = 0
+        
+        with torch.no_grad():
+            for features, labels in test_loader:
+                features = features.to(device)
+                labels = labels.to(device)
+                
+                outputs = model(features)
+                _, predicted = torch.max(outputs.data, 1)
+                
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+        
+        accuracy = 100 * correct / total
+        test_accuracies.append(accuracy)
+        
+        scheduler.step(avg_loss)
+        
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'accuracy': accuracy,
+            }, PYTORCH_MODEL_PATH)
+        
+        progress = 0.3 + (0.7 * (epoch + 1) / epochs)
+        progress_bar.progress(progress)
+        
+        if (epoch + 1) % 5 == 0:
+            status_text.text(
+                f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f} - "
+                f"Accuracy: {accuracy:.2f}% - Best: {best_accuracy:.2f}%"
+            )
+    
+    status_text.text("Training complete!")
+    progress_bar.progress(1.0)
+    
+    checkpoint = torch.load(PYTORCH_MODEL_PATH)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    with torch.no_grad():
+        for features, labels in test_loader:
+            features = features.to(device)
+            outputs = model(features)
+            _, predicted = torch.max(outputs.data, 1)
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.numpy())
+    
+    final_accuracy = accuracy_score(all_labels, all_preds)
+    
+    report = classification_report(
+        all_labels,
+        all_preds,
+        target_names=label_encoder.classes_,
+        output_dict=True
+    )
+    
+    st.success(f"Neural Network trained successfully with {final_accuracy*100:.2f}% accuracy!")
+    st.info(f"Best accuracy during training: {best_accuracy:.2f}%")
+    
+    st.write("#### Detailed Performance Metrics")
+    report_df = pd.DataFrame(report).transpose()
+    st.dataframe(report_df)
+    
+    st.write("#### Training History")
+    history_df = pd.DataFrame({
+        'Epoch': list(range(1, epochs + 1)),
+        'Loss': train_losses,
+        'Accuracy': test_accuracies
+    })
+    st.line_chart(history_df.set_index('Epoch'))
+    
+    joblib.dump(label_encoder, PYTORCH_ENCODER_PATH)
+    st.info(f"Model saved to {PYTORCH_MODEL_PATH}")
+    
+    return model, label_encoder, final_accuracy
+
+
+def predict_genre(file_path, model, label_encoder, model_type='random_forest'):
     features = extract_features(file_path)
     
     if features is None:
         return None, None
     
-    # Reshape features to 2D array (sklearn expects 2D input)
-    # Shape changes from (59,) to (1, 59) - 1 sample with 59 features
-    features = features.reshape(1, -1)
-    
-    # Get prediction probabilities for each genre
-    # This tells us how confident the model is about each possible genre
-    probabilities = model.predict_proba(features)[0]
-    
-    # Get the predicted class (the genre with highest probability)
-    prediction = model.predict(features)[0]
-    
-    # Convert the numeric prediction back to genre name
-    predicted_genre = label_encoder.inverse_transform([prediction])[0]
-    
-    # Create a dictionary mapping genres to their probabilities
-    prob_dict = {
-        label_encoder.classes_[i]: probabilities[i] 
-        for i in range(len(probabilities))
-    }
+    if model_type == 'neural_network':
+        features_tensor = torch.FloatTensor(features).unsqueeze(0)
+        
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
+        features_tensor = features_tensor.to(device)
+        
+        model.eval()
+        
+        with torch.no_grad():
+            outputs = model(features_tensor)
+            
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)[0]
+            probabilities = probabilities.cpu().numpy()
+            
+            _, predicted = torch.max(outputs, 1)
+            prediction = predicted.item()
+        
+        predicted_genre = label_encoder.inverse_transform([prediction])[0]
+        
+        prob_dict = {
+            label_encoder.classes_[i]: float(probabilities[i]) 
+            for i in range(len(probabilities))
+        }
+        
+    else:
+        features = features.reshape(1, -1)
+        
+        probabilities = model.predict_proba(features)[0]
+        
+        prediction = model.predict(features)[0]
+        
+        predicted_genre = label_encoder.inverse_transform([prediction])[0]
+        
+        prob_dict = {
+            label_encoder.classes_[i]: probabilities[i] 
+            for i in range(len(probabilities))
+        }
     
     return predicted_genre, prob_dict
 
 
-# ==================== STREAMLIT UI ====================
-
 def main():
-    """
-    Main function that creates the Streamlit web interface.
-    """
-    
-    # ===== Page Configuration =====
     st.set_page_config(
         page_title="Music Genre Classifier",
         page_icon="🎵",
         layout="wide"
     )
     
-    # ===== Title and Description =====
     st.title("🎵 Music Genre Classification System")
     st.markdown("""
     This application uses Machine Learning to automatically identify the genre of music.
     Upload an MP3 file and get instant predictions!
     """)
     
-    # ===== Sidebar for Model Management =====
     st.sidebar.title("Model Management")
     
-    # Check if a trained model exists
-    model_exists = os.path.exists(MODEL_PATH) and os.path.exists(ENCODER_PATH)
+    st.sidebar.subheader("Select Model Type")
+    model_type = st.sidebar.radio(
+        "Choose the model to use:",
+        options=['Random Forest', 'Neural Network'],
+        help="Random Forest: Fast training, good baseline. Neural Network: Potentially higher accuracy, requires more data."
+    )
+    
+    if model_type == 'Random Forest':
+        model_path = MODEL_PATH
+        encoder_path = ENCODER_PATH
+        selected_model_type = 'random_forest'
+    else:
+        model_path = PYTORCH_MODEL_PATH
+        encoder_path = PYTORCH_ENCODER_PATH
+        selected_model_type = 'neural_network'
+    
+    model_exists = os.path.exists(model_path) and os.path.exists(encoder_path)
     
     if model_exists:
-        st.sidebar.success("✅ Trained model found!")
+        st.sidebar.success(f"✅ {model_type} model found!")
     else:
-        st.sidebar.warning("⚠️ No trained model found. Please train a model first.")
+        st.sidebar.warning(f"⚠️ No {model_type} model found. Please train a model first.")
     
-    # ===== Training Section =====
     st.sidebar.markdown("---")
     st.sidebar.subheader("Train New Model")
-    # st.sidebar.markdown("""
-    # To train a model, organize your music files like this:
-    # ```
-    # dataset/
-    #     blues/
-    #         song1.mp3
-    #         song2.mp3
-    #     jazz/
-    #         song1.mp3
-    #     ...
-    # ```
-    # """)
     
-    # Input field for dataset folder path
+    if model_type == 'Neural Network':
+        with st.sidebar.expander("⚙️ Training Parameters"):
+            epochs = st.number_input("Epochs", min_value=10, max_value=200, value=50, step=10,
+                                    help="Number of training iterations")
+            batch_size = st.number_input("Batch Size", min_value=8, max_value=128, value=32, step=8,
+                                        help="Number of samples per batch")
+            learning_rate = st.number_input("Learning Rate", min_value=0.0001, max_value=0.01, 
+                                           value=0.001, step=0.0001, format="%.4f",
+                                           help="How fast the model learns")
+    
     data_folder = st.sidebar.text_input(
         "Dataset Folder Path",
         value="./dataset",
         help="Path to folder containing genre subfolders with audio files"
     )
     
-    # Training button
-    # if st.sidebar.button("Train Model"):
-    #     if os.path.exists(data_folder):
-    #         with st.spinner("Training in progress... This may take several minutes."):
-    #             result = train_model(data_folder)
-    #             if result[0] is None:
-    #                 st.error("Training failed. Please check your dataset and try again.")
-    #     else:
-    #         st.sidebar.error(f"Folder '{data_folder}' not found!")
+    if st.sidebar.button(f"Train {model_type} Model"):
+        if os.path.exists(data_folder):
+            with st.spinner(f"Training {model_type} model..."):
+                if model_type == 'Random Forest':
+                    result = train_model(data_folder)
+                else:
+                    result = train_pytorch_model(
+                        data_folder, 
+                        epochs=epochs, 
+                        batch_size=batch_size, 
+                        learning_rate=learning_rate
+                    )
+                
+                if result[0] is None:
+                    st.error("Training failed. Please check your dataset and try again.")
+        else:
+            st.sidebar.error(f"Folder '{data_folder}' not found!")
     
-    # ===== Main Prediction Section =====
     st.markdown("---")
     st.header("🎼 Upload Music for Genre Prediction")
     
-    # File uploader widget
     uploaded_file = st.file_uploader(
-        "Choose an audio file (MP3, WAV)",
+        "Choose an audio file (MP3)",
         type=['mp3', 'wav'],
         help="Upload a music file to predict its genre"
     )
     
-    # If user uploaded a file
     if uploaded_file is not None:
         
-        # Check if model exists
         if not model_exists:
-            st.error("Please train a model first using the sidebar!")
+            st.error("train a model first!")
             return
         
-        # Display file information
         st.success(f"File uploaded: {uploaded_file.name}")
         
-        # Create audio player so user can listen
         st.audio(uploaded_file, format='audio/mp3')
         
-        # Create a temporary file to save the uploaded audio
-        # This is necessary because librosa needs a file path, not a file buffer
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-            # Write uploaded file content to temporary file
             tmp_file.write(uploaded_file.getvalue())
             tmp_file_path = tmp_file.name
         
         try:
-            # Load the trained model and encoder from disk
-            model = joblib.load(MODEL_PATH)
-            label_encoder = joblib.load(ENCODER_PATH)
+            if model_type == 'Random Forest':
+                model = joblib.load(MODEL_PATH)
+                label_encoder = joblib.load(ENCODER_PATH)
+            else:
+                label_encoder = joblib.load(PYTORCH_ENCODER_PATH)
+                
+                num_classes = len(label_encoder.classes_)
+                
+                model = GenreClassifierNN(input_size=89, num_classes=num_classes)
+                
+                checkpoint = torch.load(PYTORCH_MODEL_PATH, map_location='cpu')
+                model.load_state_dict(checkpoint['model_state_dict'])
+                model.eval()
             
-            # Show loading spinner while processing
             with st.spinner("Analyzing audio and predicting genre..."):
-                # Make prediction
                 predicted_genre, probabilities = predict_genre(
                     tmp_file_path, 
                     model, 
-                    label_encoder
+                    label_encoder,
+                    model_type=selected_model_type
                 )
             
-            # Display results if prediction was successful
             if predicted_genre is not None:
                 st.markdown("---")
                 st.subheader("🎯 Prediction Results")
                 
-                # Show predicted genre in large text
                 st.markdown(f"### Predicted Genre: **{predicted_genre.upper()}**")
                 
-                # Sort probabilities from highest to lowest
                 sorted_probs = sorted(
                     probabilities.items(), 
                     key=lambda x: x[1], 
                     reverse=True
                 )
                 
-                # Display confidence for each genre
                 st.write("#### Confidence Scores:")
                 
-                # Create two columns for better layout
                 col1, col2 = st.columns(2)
                 
-                # Display each genre with its confidence score and progress bar
                 for idx, (genre, prob) in enumerate(sorted_probs):
-                    # Alternate between columns for nice layout
                     col = col1 if idx % 2 == 0 else col2
                     
                     with col:
-                        # Show genre name and percentage
                         st.write(f"**{genre.capitalize()}**")
-                        # Progress bar showing confidence level
                         st.progress(float(prob))
-                        # Exact percentage
                         st.write(f"{prob*100:.2f}%")
-                        st.write("")  # Add spacing
+                        st.write("")
                 
             else:
                 st.error("Failed to analyze the audio file. Please try another file.")
@@ -538,44 +698,18 @@ def main():
             st.error(f"Error during prediction: {str(e)}")
             
         finally:
-            # Clean up: delete the temporary file
             if os.path.exists(tmp_file_path):
                 os.unlink(tmp_file_path)
-    
-    # ===== Information Section =====
-    st.markdown("---")
-    st.subheader("ℹ️ How It Works")
-    
-    with st.expander("Click to learn more"):
-        st.markdown("""
-        **Feature Extraction:** 
-        - The system analyzes various audio characteristics including:
-          - MFCCs (Mel-Frequency Cepstral Coefficients) - captures timbre
-          - Chroma features - captures harmony and melody
-          - Spectral features - captures frequency content
-          - Rhythm features - captures tempo and beat
-        
-        **Machine Learning Model:**
-        - Uses Random Forest classifier with 100 decision trees
-        - Trained on multiple examples from each genre
-        - Makes predictions based on learned patterns
-        
-        **Prediction:**
-        - Extracts 59 different features from your audio file
-        - Compares these features to learned patterns
-        - Provides confidence scores for each possible genre
-        """)
-    
-    # ===== Footer =====
+    st.markdown(
+        "<div style='text-align: center; min-height: 250px'></div>",
+        unsafe_allow_html=True
+    )
     st.markdown("---")
     st.markdown(
-        "<div style='text-align: center'>2025 ML איציק אדרי - עבודת הגשה קורס </div>",
+        "<div style='text-align: center;'>2025 ML איציק אדרי - עבודת הגשה קורס </div>",
         unsafe_allow_html=True
     )
 
 
-# ==================== RUN APPLICATION ====================
-
 if __name__ == "__main__":
-    # This runs when you execute: streamlit run app.py
     main()
