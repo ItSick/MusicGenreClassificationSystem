@@ -583,42 +583,42 @@ def main():
     else:
         st.sidebar.warning(f"⚠️ No {model_type} model found. Please train a model first.")
     
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Train New Model")
+    # st.sidebar.markdown("---")
+    # st.sidebar.subheader("Train New Model")
     
-    if model_type == 'Neural Network':
-        with st.sidebar.expander("⚙️ Training Parameters"):
-            epochs = st.number_input("Epochs", min_value=10, max_value=200, value=50, step=10,
-                                    help="Number of training iterations")
-            batch_size = st.number_input("Batch Size", min_value=8, max_value=128, value=32, step=8,
-                                        help="Number of samples per batch")
-            learning_rate = st.number_input("Learning Rate", min_value=0.0001, max_value=0.01, 
-                                           value=0.001, step=0.0001, format="%.4f",
-                                           help="How fast the model learns")
+    # if model_type == 'Neural Network':
+    #     with st.sidebar.expander("⚙️ Training Parameters"):
+    #         epochs = st.number_input("Epochs", min_value=10, max_value=200, value=50, step=10,
+    #                                 help="Number of training iterations")
+    #         batch_size = st.number_input("Batch Size", min_value=8, max_value=128, value=32, step=8,
+    #                                     help="Number of samples per batch")
+    #         learning_rate = st.number_input("Learning Rate", min_value=0.0001, max_value=0.01, 
+    #                                        value=0.001, step=0.0001, format="%.4f",
+    #                                        help="How fast the model learns")
     
-    data_folder = st.sidebar.text_input(
-        "Dataset Folder Path",
-        value="./dataset",
-        help="Path to folder containing genre subfolders with audio files"
-    )
+    # data_folder = st.sidebar.text_input(
+    #     "Dataset Folder Path",
+    #     value="./dataset",
+    #     help="Path to folder containing genre subfolders with audio files"
+    # )
     
-    if st.sidebar.button(f"Train {model_type} Model"):
-        if os.path.exists(data_folder):
-            with st.spinner(f"Training {model_type} model..."):
-                if model_type == 'Random Forest':
-                    result = train_model(data_folder)
-                else:
-                    result = train_pytorch_model(
-                        data_folder, 
-                        epochs=epochs, 
-                        batch_size=batch_size, 
-                        learning_rate=learning_rate
-                    )
+    # if st.sidebar.button(f"Train {model_type} Model"):
+    #     if os.path.exists(data_folder):
+    #         with st.spinner(f"Training {model_type} model..."):
+    #             if model_type == 'Random Forest':
+    #                 result = train_model(data_folder)
+    #             else:
+    #                 result = train_pytorch_model(
+    #                     data_folder, 
+    #                     epochs=epochs, 
+    #                     batch_size=batch_size, 
+    #                     learning_rate=learning_rate
+    #                 )
                 
-                if result[0] is None:
-                    st.error("Training failed. Please check your dataset and try again.")
-        else:
-            st.sidebar.error(f"Folder '{data_folder}' not found!")
+    #             if result[0] is None:
+    #                 st.error("Training failed. Please check your dataset and try again.")
+    #     else:
+    #         st.sidebar.error(f"Folder '{data_folder}' not found!")
     
     st.markdown("---")
     st.header("🎼 Upload Music for Genre Prediction")
