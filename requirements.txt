@@ -12,3 +12,4 @@ librosa
 # Other ML/Utility packages
 scikit-learn
 matplotlib
+plotly
