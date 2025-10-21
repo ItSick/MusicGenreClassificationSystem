@@ -1,14 +1,28 @@
 streamlit
+
 numpy
+
 pandas
+
 # PyTorch and dependencies
+
 torch
+
 torchaudio
+
 torchvision
 
+
+
 # Audio Feature Extraction
+
 librosa
 
+
+
 # Other ML/Utility packages
+
 scikit-learn
+
 matplotlib
+
