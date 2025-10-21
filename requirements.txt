@@ -1,24 +1,28 @@
-# requirements.txt
-# Highly stable versions for Python 3.11 environments
+streamlit
 
-# Streamlit/Data/Visualization
-streamlit==1.42.0
-numpy==1.24.4  # Slightly older, very stable numpy
-pandas==2.1.4
-plotly==5.19.0
+numpy
 
-# Utility
-joblib==1.3.2 
+pandas
 
-# PyTorch (Older, rock-solid versions)
-torch==2.0.1+cpu 
-torchaudio==2.0.2+cpu
-torchvision==0.15.2+cpu
+# PyTorch and dependencies
 
-# Audio Feature Extraction (FIX for librosa/numba Type Error)
-librosa==0.10.1
-numba==0.59.1
+torch
+
+torchaudio
+
+torchvision
+
+
+
+# Audio Feature Extraction
+
+librosa
+
+
 
 # Other ML/Utility packages
-scikit-learn==1.4.1
-matplotlib==3.8.3
+
+scikit-learn
+
+matplotlib
+
