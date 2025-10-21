@@ -1,14 +1,19 @@
-streamlit
-numpy
-pandas
-# PyTorch and dependencies
-torch
-torchaudio
-torchvision
+# requirements.txt
 
-# Audio Feature Extraction
-librosa
+# Streamlit/Data
+streamlit==1.42.0
+numpy==1.26.4
+pandas==2.2.1
+
+# PyTorch (Using stable CPU versions for broader compatibility)
+torch==2.2.2+cpu
+torchaudio==2.2.2+cpu
+torchvision==0.17.2+cpu
+
+# Audio Feature Extraction (CRITICAL FIX for your TypeError)
+librosa==0.10.1
+numba==0.59.1  # Highly compatible with librosa 0.10.1 and Python 3.11/3.12
 
 # Other ML/Utility packages
-scikit-learn
-matplotlib
+scikit-learn==1.4.1
+matplotlib==3.8.3
