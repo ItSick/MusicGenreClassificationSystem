@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import joblib
 import os
 import tempfile
@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 GENRES = ['blues', 'classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae', 'rock']
 
@@ -167,6 +169,103 @@ def extract_features(file_path, duration=30):
         return None
 
 
+# ========== NEW HELPER FUNCTIONS ==========
+
+def get_feature_names():
+    """
+    Returns the names of all 89 features in the exact order they are extracted.
+    """
+    feature_names = []
+    
+    # MFCCs (13 mean + 13 std = 26 features)
+    feature_names.extend([f'MFCC_{i}_mean' for i in range(1, 14)])
+    feature_names.extend([f'MFCC_{i}_std' for i in range(1, 14)])
+    
+    # Chroma (12 mean + 12 std = 24 features)
+    feature_names.extend([f'Chroma_{i}_mean' for i in range(1, 13)])
+    feature_names.extend([f'Chroma_{i}_std' for i in range(1, 13)])
+    
+    # Spectral features (10 features)
+    feature_names.extend([
+        'Spectral_Centroid_mean', 'Spectral_Centroid_std',
+        'Spectral_Rolloff_mean', 'Spectral_Rolloff_std',
+        'Spectral_Bandwidth_mean', 'Spectral_Bandwidth_std',
+        'Zero_Crossing_Rate_mean', 'Zero_Crossing_Rate_std',
+    ])
+    
+    # Spectral Contrast (7 mean + 7 std = 14 features)
+    feature_names.extend([f'Spectral_Contrast_{i}_mean' for i in range(1, 8)])
+    feature_names.extend([f'Spectral_Contrast_{i}_std' for i in range(1, 8)])
+    
+    # Tonnetz (6 mean + 6 std = 12 features)
+    feature_names.extend([f'Tonnetz_{i}_mean' for i in range(1, 7)])
+    feature_names.extend([f'Tonnetz_{i}_std' for i in range(1, 7)])
+    
+    # RMS (2 features)
+    feature_names.extend(['RMS_mean', 'RMS_std'])
+    
+    # Spectral Flatness (2 features)
+    feature_names.extend(['Spectral_Flatness_mean', 'Spectral_Flatness_std'])
+    
+    # Tempo (1 feature)
+    feature_names.append('Tempo')
+    
+    return feature_names
+
+
+def plot_feature_importance(model, feature_names, top_n=20):
+    """
+    Plot feature importance for Random Forest model.
+    """
+    importances = model.feature_importances_
+    
+    feature_importance_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': importances
+    })
+    
+    feature_importance_df = feature_importance_df.sort_values('Importance', ascending=False)
+    
+    top_features = feature_importance_df.head(top_n)
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    ax.barh(range(len(top_features)), top_features['Importance'])
+    ax.set_yticks(range(len(top_features)))
+    ax.set_yticklabels(top_features['Feature'], fontsize=9)
+    ax.set_xlabel('Importance Score', fontsize=10)
+    ax.set_title(f'Top {top_n} Most Important Features for Genre Classification', fontsize=11)
+    ax.invert_yaxis()
+    
+    plt.tight_layout()
+    
+    return fig, feature_importance_df
+
+
+def plot_confusion_matrix(y_true, y_pred, labels):
+    """
+    Plot confusion matrix.
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=labels, yticklabels=labels, ax=ax,
+                annot_kws={'fontsize': 9})
+    
+    ax.set_xlabel('Predicted Label', fontsize=10)
+    ax.set_ylabel('True Label', fontsize=10)
+    ax.set_title('Confusion Matrix - Genre Classification', fontsize=11)
+    ax.tick_params(axis='both', which='major', labelsize=9)
+    
+    plt.tight_layout()
+    
+    return fig
+
+# ========== END NEW HELPER FUNCTIONS ==========
+
+
 def train_model(data_folder):
     features_list = []
     labels_list = []
@@ -271,6 +370,45 @@ def train_model(data_folder):
     st.write("#### Detailed Performance Metrics")
     report_df = pd.DataFrame(report).transpose()
     st.dataframe(report_df)
+    
+    # ========== NEW CODE: Feature Importance ==========
+    st.write("#### 📊 Feature Importance Analysis")
+    st.markdown("""
+    This shows which audio features are most important for the model's decisions.
+    Higher values mean the feature has more influence on genre classification.
+    """)
+    
+    feature_names = get_feature_names()
+    fig_importance, importance_df = plot_feature_importance(model, feature_names, top_n=20)
+    
+    st.pyplot(fig_importance)
+    
+    with st.expander("📋 View All Feature Importances"):
+        st.dataframe(importance_df, height=400)
+    
+    # ========== NEW CODE: Confusion Matrix ==========
+    st.write("#### 🎯 Confusion Matrix")
+    st.markdown("""
+    This shows how often each genre is predicted correctly or confused with other genres.
+    Diagonal values show correct predictions. Off-diagonal values show misclassifications.
+    """)
+    
+    fig_cm = plot_confusion_matrix(y_test, y_pred, label_encoder.classes_)
+    st.pyplot(fig_cm)
+    
+    # Calculate per-genre accuracy
+    cm = confusion_matrix(y_test, y_pred)
+    per_genre_accuracy = cm.diagonal() / cm.sum(axis=1)
+    
+    genre_accuracy_df = pd.DataFrame({
+        'Genre': label_encoder.classes_,
+        'Accuracy': per_genre_accuracy
+    }).sort_values('Accuracy', ascending=False)
+    
+    st.write("#### Genre-Specific Accuracy:")
+    for idx, row in genre_accuracy_df.iterrows():
+        st.write(f"**{row['Genre'].capitalize()}**: {row['Accuracy']*100:.2f}%")
+    # ========== END NEW CODE ==========
     
     joblib.dump(model, MODEL_PATH)
     joblib.dump(label_encoder, ENCODER_PATH)
@@ -491,6 +629,35 @@ def train_pytorch_model(data_folder, epochs=50, batch_size=32, learning_rate=0.0
     })
     st.line_chart(history_df.set_index('Epoch'))
     
+    # ========== NEW CODE: Confusion Matrix for Neural Network ==========
+    st.write("#### 🎯 Confusion Matrix")
+    st.markdown("""
+    This shows how often each genre is predicted correctly or confused with other genres.
+    Diagonal values show correct predictions. Off-diagonal values show misclassifications.
+    """)
+    
+    fig_cm = plot_confusion_matrix(all_labels, all_preds, label_encoder.classes_)
+    st.pyplot(fig_cm)
+    
+    # Calculate per-genre accuracy
+    cm = confusion_matrix(all_labels, all_preds)
+    per_genre_accuracy = cm.diagonal() / cm.sum(axis=1)
+    
+    genre_accuracy_df = pd.DataFrame({
+        'Genre': label_encoder.classes_,
+        'Accuracy': per_genre_accuracy
+    }).sort_values('Accuracy', ascending=False)
+    
+    st.write("#### Genre-Specific Accuracy:")
+    for idx, row in genre_accuracy_df.iterrows():
+        st.write(f"**{row['Genre'].capitalize()}**: {row['Accuracy']*100:.2f}%")
+    
+    st.info("""
+    ℹ️ **Note:** Feature importance analysis is only available for Random Forest models.
+    Neural networks don't provide straightforward feature importance scores.
+    """)
+    # ========== END NEW CODE ==========
+    
     joblib.dump(label_encoder, PYTORCH_ENCODER_PATH)
     st.info(f"Model saved to {PYTORCH_MODEL_PATH}")
     
@@ -583,42 +750,42 @@ def main():
     else:
         st.sidebar.warning(f"⚠️ No {model_type} model found. Please train a model first.")
     
-    # st.sidebar.markdown("---")
-    # st.sidebar.subheader("Train New Model")
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Train New Model")
     
-    # if model_type == 'Neural Network':
-    #     with st.sidebar.expander("⚙️ Training Parameters"):
-    #         epochs = st.number_input("Epochs", min_value=10, max_value=200, value=50, step=10,
-    #                                 help="Number of training iterations")
-    #         batch_size = st.number_input("Batch Size", min_value=8, max_value=128, value=32, step=8,
-    #                                     help="Number of samples per batch")
-    #         learning_rate = st.number_input("Learning Rate", min_value=0.0001, max_value=0.01, 
-    #                                        value=0.001, step=0.0001, format="%.4f",
-    #                                        help="How fast the model learns")
+    if model_type == 'Neural Network':
+        with st.sidebar.expander("⚙️ Training Parameters"):
+            epochs = st.number_input("Epochs", min_value=10, max_value=200, value=50, step=10,
+                                    help="Number of training iterations")
+            batch_size = st.number_input("Batch Size", min_value=8, max_value=128, value=32, step=8,
+                                        help="Number of samples per batch")
+            learning_rate = st.number_input("Learning Rate", min_value=0.0001, max_value=0.01, 
+                                           value=0.001, step=0.0001, format="%.4f",
+                                           help="How fast the model learns")
     
-    # data_folder = st.sidebar.text_input(
-    #     "Dataset Folder Path",
-    #     value="./dataset",
-    #     help="Path to folder containing genre subfolders with audio files"
-    # )
+    data_folder = st.sidebar.text_input(
+        "Dataset Folder Path",
+        value="./dataset",
+        help="Path to folder containing genre subfolders with audio files"
+    )
     
-    # if st.sidebar.button(f"Train {model_type} Model"):
-    #     if os.path.exists(data_folder):
-    #         with st.spinner(f"Training {model_type} model..."):
-    #             if model_type == 'Random Forest':
-    #                 result = train_model(data_folder)
-    #             else:
-    #                 result = train_pytorch_model(
-    #                     data_folder, 
-    #                     epochs=epochs, 
-    #                     batch_size=batch_size, 
-    #                     learning_rate=learning_rate
-    #                 )
+    if st.sidebar.button(f"Train {model_type} Model"):
+        if os.path.exists(data_folder):
+            with st.spinner(f"Training {model_type} model..."):
+                if model_type == 'Random Forest':
+                    result = train_model(data_folder)
+                else:
+                    result = train_pytorch_model(
+                        data_folder, 
+                        epochs=epochs, 
+                        batch_size=batch_size, 
+                        learning_rate=learning_rate
+                    )
                 
-    #             if result[0] is None:
-    #                 st.error("Training failed. Please check your dataset and try again.")
-    #     else:
-    #         st.sidebar.error(f"Folder '{data_folder}' not found!")
+                if result[0] is None:
+                    st.error("Training failed. Please check your dataset and try again.")
+        else:
+            st.sidebar.error(f"Folder '{data_folder}' not found!")
     
     st.markdown("---")
     st.header("🎼 Upload Music for Genre Prediction")

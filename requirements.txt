@@ -27,4 +27,3 @@ scikit-learn
 matplotlib
 
 plotly
-
