@@ -1,6 +1,5 @@
-streamlit
 
-numpy
+numpy<2.0
 
 pandas
 
@@ -29,3 +28,10 @@ matplotlib
 plotly
 
 seaborn
+
+
+streamlit==1.29.0
+pytesseract==0.3.10
+Pillow==10.1.0
+PyMuPDF==1.23.8
+opencv-python==4.8.1.78
